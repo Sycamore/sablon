@@ -44,7 +44,7 @@ module Sablon
           end
         end
 
-        def combine_run_props(local_props, template_props)
+        def combine_props(local_props, template_props)
           local_child_names = local_props.children.map(&:name)
           template_props.element_children.each do |child|
             unless local_child_names.include?(child.name)
@@ -60,8 +60,11 @@ module Sablon
             paragraph_children = doc_fragment.search(".//*").select { |child| child.name == "w:p" }
             paragraph_children.each do |paragraph|
               props_node = paragraph.element_children.select { |child| child.name == "w:pPr" }.first
-              props_node.remove if props_node.present?
-              add_as_first_child(paragraph, template_props.dup)
+              if props_node.present?
+                combine_props(props_node, template_props)
+              else
+                add_as_first_child(paragraph, template_props.dup)
+              end
             end
           end
           template_run_props = template_display_run_node && template_display_run_node.search(".//w:rPr").first
@@ -70,7 +73,7 @@ module Sablon
             run_children.each do |run|
               props_node = run.element_children.select { |child| child.name == "w:rPr" }.first
               if props_node.present?
-                combine_run_props(props_node, template_run_props)
+                combine_props(props_node, template_run_props)
               else
                 add_as_first_child(run, template_run_props.dup)
               end
