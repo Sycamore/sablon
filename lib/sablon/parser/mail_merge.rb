@@ -93,7 +93,8 @@ module Sablon
         end
 
         def replace(content, env)
-          if content.is_a?(Sablon::Content::WordML)
+          inserting_word_ml = content.is_a?(Sablon::Content::WordML)
+          if inserting_word_ml
             template_paragraph = @nodes.first && @nodes.first.ancestors(".//w:p").first
             if env.remove_fields_only
               template_paragraph.remove if template_paragraph.present?
@@ -108,9 +109,30 @@ module Sablon
           end
 
           unless env.remove_fields_only
-            replace_field_display(pattern_node, content, env)
-            (@nodes - [pattern_node]).each(&:remove) unless env.keep_merge_fields
+            the_pattern_node = pattern_node(!inserting_word_ml)
+            replace_field_display(the_pattern_node, content, env)
+            if env.keep_merge_fields
+              remove_extra_display_nodes(the_pattern_node) unless inserting_word_ml
+            else
+              (@nodes - [pattern_node]).each(&:remove)
+            end
           end
+        end
+
+        def remove_extra_display_nodes(the_pattern_node)
+          the_separate_node = separate_node
+          past_separator = false
+          nodes_to_remove = []
+          @nodes.each do |node|
+            if past_separator
+              nodes_to_remove << node
+            else
+              past_separator = true if node == the_separate_node
+            end
+          end
+          the_end_node = end_node
+          the_end_node.search(".//w:t").each(&:remove)
+          (nodes_to_remove - [the_pattern_node, the_end_node]).each(&:remove)
         end
 
         def remove
@@ -130,8 +152,20 @@ module Sablon
         end
 
         private
-        def pattern_node
-          separate_node.next_element
+
+        def pattern_node(can_create_new = false)
+          candidate = separate_node.next_element
+          if can_create_new && candidate.name == "ins"
+            first_run = candidate.search(".//w:r").first
+            if first_run.present?
+              new_pattern_node = candidate.add_previous_sibling(first_run.dup)
+              new_pattern_node
+            else
+              candidate
+            end
+          else
+            candidate
+          end
         end
 
         def separate_node
@@ -198,15 +232,19 @@ module Sablon
 
       private
 
-      def build_complex_field(node)
+      def build_complex_field(node, allow_recursion = true)
         possible_field_node = node.parent
         field_nodes = [possible_field_node]
         while possible_field_node && possible_field_node.search(".//w:fldChar[@w:fldCharType='end']").empty?
           possible_field_node = possible_field_node.next_element
           field_nodes << possible_field_node
         end
-        # skip instantiation if no end tag
-        ComplexField.new(field_nodes) if field_nodes.last
+        # skip instantiation if no end tag but try once again if it seems to be caused by tracking changes
+        if field_nodes.last
+          ComplexField.new(field_nodes)
+        elsif allow_recursion && node.parent.parent.name == "ins"
+          build_complex_field(node.parent, false)
+        end
       end
     end
   end
